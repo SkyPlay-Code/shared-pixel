@@ -50,14 +50,21 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
     setBlendMode(BLEND_MODES[nextIndex]);
   };
 
+  const commonButtonClass = "p-2 transition-all duration-200 ease-in-out";
+  const toolButtonBase = `${commonButtonClass} border-t border-b border-sky-600/70 text-sky-400 hover:bg-sky-500/30 hover:text-sky-300 hover:shadow-md hover:shadow-sky-500/50`;
+  const toolButtonActive = "bg-sky-500 text-black ring-2 ring-sky-300";
+
   return (
-    <div ref={ref} className="bg-gray-100 p-2 shadow-md z-20 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 sm:gap-x-4 print:hidden">
+    <div 
+      ref={ref} 
+      className="bg-black/60 backdrop-blur-md p-2 shadow-lg z-20 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 sm:gap-x-4 print:hidden border-b-2 border-fuchsia-500/70 animate-pulse-border-fuchsia"
+    >
       {/* Tool Selector */}
-      <div className="flex gap-px border border-gray-300 rounded">
+      <div className="flex rounded overflow-hidden border border-sky-600/70">
         <button
           title="Pen"
           onClick={() => handleToolChange('pen')}
-          className={`p-2 ${currentTool === 'pen' ? 'bg-blue-500 text-white' : 'bg-gray-200 hover:bg-gray-300'} rounded-l`}
+          className={`${toolButtonBase} ${currentTool === 'pen' ? toolButtonActive : ''}`}
           aria-pressed={currentTool === 'pen'}
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
@@ -67,10 +74,9 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
         <button
           title="Gravity Pen"
           onClick={() => handleToolChange('gravityPen')}
-          className={`p-2 ${currentTool === 'gravityPen' ? 'bg-blue-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}
+          className={`${toolButtonBase} border-l border-r border-sky-600/70 ${currentTool === 'gravityPen' ? toolButtonActive : ''}`}
           aria-pressed={currentTool === 'gravityPen'}
         >
-          {/* Dripping pen icon */}
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
             <path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42" />
              <path strokeLinecap="round" strokeLinejoin="round" d="M6 20.25c0 .414.336.75.75.75H7.5c.414 0 .75-.336.75-.75v-1.5c0-.414-.336-.75-.75-.75H6.75a.75.75 0 00-.75.75v1.5zm3.75 0c0 .414.336.75.75.75h.75c.414 0 .75-.336.75-.75v-1.5c0-.414-.336-.75-.75-.75h-.75a.75.75 0 00-.75.75v1.5zm3.75 0c0 .414.336.75.75.75h.75c.414 0 .75-.336.75-.75v-1.5c0-.414-.336-.75-.75-.75h-.75a.75.75 0 00-.75.75v1.5z" />
@@ -79,18 +85,18 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
         <button
           title="Eraser"
           onClick={() => handleToolChange('eraser')}
-          className={`p-2 ${currentTool === 'eraser' ? 'bg-blue-500 text-white' : 'bg-gray-200 hover:bg-gray-300'} rounded-r`}
+          className={`${toolButtonBase} ${currentTool === 'eraser' ? toolButtonActive : ''}`}
           aria-pressed={currentTool === 'eraser'}
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
             <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z" />
-             <path strokeLinecap="round" strokeLinejoin="round" d="M15 12H9m6 0a2.25 2.25 0 01-2.25 2.25H11.25a2.25 2.25 0 01-2.25-2.25m3.75 0V9.75M9 12a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9.75m2.25 2.25V15m0-2.25a2.25 2.25 0 002.25 2.25h3.75m0-2.25V9.75M15 12a2.25 2.25 0 012.25-2.25h1.5a2.25 2.25 0 012.25 2.25m-2.25 2.25V15m0-2.25a2.25 2.25 0 01-2.25 2.25H15" /> {/* Simple eraser icon */}
+             <path strokeLinecap="round" strokeLinejoin="round" d="M15 12H9m6 0a2.25 2.25 0 01-2.25 2.25H11.25a2.25 2.25 0 01-2.25-2.25m3.75 0V9.75M9 12a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9.75m2.25 2.25V15m0-2.25a2.25 2.25 0 002.25 2.25h3.75m0-2.25V9.75M15 12a2.25 2.25 0 012.25-2.25h1.5a2.25 2.25 0 012.25 2.25m-2.25 2.25V15m0-2.25a2.25 2.25 0 01-2.25 2.25H15" />
           </svg>
         </button>
       </div>
 
       {/* Color Picker */}
-      <div className="flex gap-1 items-center">
+      <div className="flex gap-1.5 items-center">
         {[userAssignedColor, ...PREDEFINED_COLORS].filter((c, i, a) => a.indexOf(c) === i).map(color => (
           <button
             key={color}
@@ -99,9 +105,9 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
                 setCurrentColor(color);
                 if (currentTool === 'eraser') setCurrentTool('pen'); 
             }}
-            className={`w-6 h-6 rounded-full border-2 hover:opacity-80 transition-all duration-150 ease-in-out
-                        ${(currentTool === 'pen' || currentTool === 'gravityPen') && currentColor === color ? 'border-blue-500 ring-2 ring-blue-500 ring-offset-1' : 'border-gray-400'}
-                        ${color === userAssignedColor ? 'ring-offset-gray-100' : ''}`}
+            className={`w-6 h-6 rounded-full border hover:border-fuchsia-400/80 transition-all duration-150 ease-in-out
+                        ${(currentTool === 'pen' || currentTool === 'gravityPen') && currentColor === color ? 'ring-2 ring-offset-2 ring-offset-black ring-fuchsia-400 border-transparent' : 'border-slate-600 hover:border-slate-400'}
+                      `}
             style={{ backgroundColor: color }}
             aria-label={`Select color ${color}`}
             aria-pressed={(currentTool === 'pen' || currentTool === 'gravityPen') && currentColor === color}
@@ -111,7 +117,7 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
 
       {/* Stroke Width Selector */}
       <div className="flex items-center gap-2">
-         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-gray-600">
+         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-fuchsia-400">
             <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5.16 12.75M9.75 3.104L12 3.75m-2.25-.646V1.5m6.375 7.375L10.5 14.25m8.25-4.5V21M18.75 14.25L10.5 21m0-6.75h7.5" />
          </svg>
         <input
@@ -120,21 +126,20 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
           max="50"
           value={currentStrokeWidth}
           onChange={(e) => setCurrentStrokeWidth(Number(e.target.value))}
-          className="w-20 md:w-24 cursor-pointer accent-blue-500"
+          className="w-20 md:w-24 cursor-pointer accent-fuchsia-500 bg-gray-700/50 rounded-lg"
           title={`Stroke width: ${currentStrokeWidth}px`}
           aria-label="Stroke width"
         />
-        <span className="text-sm w-6 text-right text-gray-700">{currentStrokeWidth}</span>
+        <span className="text-sm w-6 text-right text-fuchsia-400">{currentStrokeWidth}</span>
       </div>
 
       {/* Pulsing Brush Toggle */}
       <button
         title={isPulsingBrush ? "Disable Pulsing Effect" : "Enable Pulsing Effect"}
         onClick={() => setIsPulsingBrush(!isPulsingBrush)}
-        className={`p-2 rounded ${isPulsingBrush ? 'bg-purple-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}
+        className={`${commonButtonClass} rounded ${isPulsingBrush ? 'bg-purple-500 text-black ring-2 ring-purple-300' : 'bg-gray-700/50 text-purple-400 hover:bg-purple-500/30'}`}
         aria-pressed={isPulsingBrush}
       >
-        {/* Wave icon for pulsing */}
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
           <path strokeLinecap="round" strokeLinejoin="round" d="M12.75 19.5v-.75a7.5 7.5 0 00-7.5-7.5H4.5m0-6.75h.75c7.86 0 14.25 6.39 14.25 14.25v.75M6 18.75a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
         </svg>
@@ -144,7 +149,7 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
       <button
         title={`Blend Mode: ${BLEND_MODE_NAMES[blendMode]}`}
         onClick={cycleBlendMode}
-        className="p-2 rounded bg-teal-500 text-white hover:bg-teal-600 min-w-[90px] text-sm"
+        className={`${commonButtonClass} rounded bg-teal-600/50 text-teal-300 hover:bg-teal-500/70 min-w-[90px] text-sm`}
       >
         {BLEND_MODE_NAMES[blendMode]}
       </button>
@@ -152,7 +157,7 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
       {/* Clear Canvas Button */}
       <button
         onClick={clearCanvas}
-        className="p-2 rounded bg-red-500 text-white hover:bg-red-600 flex items-center gap-1"
+        className={`${commonButtonClass} rounded bg-red-600/60 text-red-300 hover:bg-red-500/70 flex items-center gap-1`}
         title="Clear Canvas"
       >
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
