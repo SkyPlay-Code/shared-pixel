@@ -1,12 +1,13 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Position, UserRole, Stroke, DrawingTool, BlendMode } from './types';
+import { Position, UserRole, Stroke, DrawingTool, BlendMode, ActualUserRole } from './types';
 import StatusMessage from './components/StatusMessage';
 import Toolbar from './components/Toolbar';
 import {
-  SESSION_USER1_ID_KEY,
-  SESSION_USER2_ID_KEY,
-  SESSION_USER1_STROKES_KEY,
-  SESSION_USER2_STROKES_KEY,
+  MAX_USERS,
+  SESSION_USER_ID_KEYS,
+  SESSION_USER_STROKES_KEYS,
+  USER_ROLES, // This is effectively ActualUserRole[]
   CLEAR_CANVAS_KEY,
 } from './constants/localStorageKeys';
 
@@ -14,23 +15,32 @@ const generateUniqueId = (): string => {
   return Math.random().toString(36).substring(2, 11);
 };
 
-const USER1_COLOR = 'rgba(236, 72, 153, 1)'; // Pink
-const USER2_COLOR = 'rgba(34, 211, 238, 1)';  // Cyan
+const USER_COLORS: Record<ActualUserRole, string> = {
+  user1: 'rgba(236, 72, 153, 1)', // Pink
+  user2: 'rgba(34, 211, 238, 1)',  // Cyan
+  user3: 'rgba(132, 204, 22, 1)', // Lime
+  user4: 'rgba(249, 115, 22, 1)',  // Orange
+};
 const ERASER_COLOR = '#FFFFFF'; 
 const DEFAULT_STROKE_WIDTH = 4;
 
-const GRAVITY_FACTOR = 0.005; // pixels per millisecond for gravity effect
-const PULSE_PERIOD = 600; // milliseconds for one full pulse cycle
-const PULSE_AMPLITUDE_RATIO = 0.4; // e.g., 40% of base strokeWidth for pulsing
+const GRAVITY_FACTOR = 0.005; 
+const PULSE_PERIOD = 600; 
+const PULSE_AMPLITUDE_RATIO = 0.4; 
+
+interface ConnectedUser {
+  id: string;
+  role: ActualUserRole; // Connected users always have an actual role
+  color: string;
+}
 
 const App: React.FC = () => {
   const [myId, setMyId] = useState<string | null>(null);
-  const [myRole, setMyRole] = useState<UserRole>(null);
-  const [partnerId, setPartnerId] = useState<string | null>(null);
+  const [myRole, setMyRole] = useState<UserRole>(null); // Can be null initially
+  const [connectedUsers, setConnectedUsers] = useState<ConnectedUser[]>([]);
   
   const [statusMessage, setStatusMessage] = useState<string>('Initializing...');
-  const [isConnected, setIsConnected] = useState<boolean>(false);
-
+  
   const myIdRef = useRef<string | null>(null);
   const myRoleRef = useRef<UserRole>(null);
 
@@ -41,19 +51,18 @@ const App: React.FC = () => {
 
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
   const [currentDrawingPath, setCurrentDrawingPath] = useState<Position[]>([]);
-  const [localStrokes, setLocalStrokes] = useState<Stroke[]>([]);
-  const [partnerStrokes, setPartnerStrokes] = useState<Stroke[]>([]);
+  const [allStrokes, setAllStrokes] = useState<Record<ActualUserRole, Stroke[]>>({
+    user1: [], user2: [], user3: [], user4: [],
+  });
   
-  const [userAssignedColor, setUserAssignedColor] = useState<string>(USER1_COLOR);
+  const [myUserColor, setMyUserColor] = useState<string>(USER_COLORS.user1);
   const [currentTool, setCurrentTool] = useState<DrawingTool>('pen');
-  const [currentColor, setCurrentColor] = useState<string>(userAssignedColor);
+  const [currentColor, setCurrentColor] = useState<string>(myUserColor);
   const [currentStrokeWidth, setCurrentStrokeWidth] = useState<number>(DEFAULT_STROKE_WIDTH);
 
-  // New "insane" feature states
   const [isPulsingBrush, setIsPulsingBrush] = useState<boolean>(false);
   const [blendMode, setBlendMode] = useState<BlendMode>('source-over');
   const [animatedStrokesExist, setAnimatedStrokesExist] = useState<boolean>(false);
-
 
   useEffect(() => {
     myIdRef.current = myId;
@@ -61,19 +70,17 @@ const App: React.FC = () => {
 
   useEffect(() => {
     myRoleRef.current = myRole;
-    let newAssignedColor = USER1_COLOR;
-    if (myRole === 'user1') {
-      newAssignedColor = USER1_COLOR;
-    } else if (myRole === 'user2') {
-      newAssignedColor = USER2_COLOR;
+    if (myRole && USER_ROLES.includes(myRole as ActualUserRole)) {
+      const newAssignedColor = USER_COLORS[myRole as ActualUserRole];
+      setMyUserColor(newAssignedColor);
+      
+      const penTools: DrawingTool[] = ['pen', 'gravityPen'];
+      const previousUserColors = Object.values(USER_COLORS);
+      if (penTools.includes(currentTool) && (previousUserColors.includes(currentColor) || currentColor === ERASER_COLOR)) {
+        setCurrentColor(newAssignedColor);
+      }
     }
-    setUserAssignedColor(newAssignedColor);
-    
-    const penTools: DrawingTool[] = ['pen', 'gravityPen'];
-    if (penTools.includes(currentTool) && (currentColor === USER1_COLOR || currentColor === USER2_COLOR || currentColor === ERASER_COLOR /* if eraser was active and color was white */)) {
-      setCurrentColor(newAssignedColor);
-    }
-  }, [myRole]); 
+  }, [myRole, currentTool, currentColor]); 
 
    useEffect(() => {
     const calculateToolbarHeight = () => {
@@ -82,19 +89,12 @@ const App: React.FC = () => {
       }
     };
     calculateToolbarHeight(); 
-    // Recalculate on mount and resize
     window.addEventListener('resize', calculateToolbarHeight);
-    // Also recalculate if toolbar content might change its height (e.g. flex-wrap)
     const observer = new ResizeObserver(calculateToolbarHeight);
-    if (toolbarRef.current) {
-        observer.observe(toolbarRef.current);
-    }
-
+    if (toolbarRef.current) observer.observe(toolbarRef.current);
     return () => {
         window.removeEventListener('resize', calculateToolbarHeight);
-        if (toolbarRef.current) {
-            observer.unobserve(toolbarRef.current);
-        }
+        if (toolbarRef.current) observer.unobserve(toolbarRef.current);
     };
   }, []);
 
@@ -109,143 +109,179 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const currentId = generateUniqueId();
-    setMyId(currentId); 
+    setMyId(currentId);
+    let assignedRole: ActualUserRole | null = null; // Use ActualUserRole here or null if no slot
+    let foundExistingRole = false;
 
-    const user1Id = localStorage.getItem(SESSION_USER1_ID_KEY);
-    const user2Id = localStorage.getItem(SESSION_USER2_ID_KEY);
-    let assignedRole: UserRole = null;
-
-    if (!user1Id) {
-      localStorage.setItem(SESSION_USER1_ID_KEY, currentId);
-      assignedRole = 'user1';
-    } else if (!user2Id && user1Id !== currentId) {
-      localStorage.setItem(SESSION_USER2_ID_KEY, currentId);
-      assignedRole = 'user2';
-      setPartnerId(user1Id);
-      setIsConnected(true);
-    } else if (user1Id === currentId) {
-      assignedRole = 'user1';
-      if (user2Id) {
-        setPartnerId(user2Id);
-        setIsConnected(true);
+    for (let i = 0; i < MAX_USERS; i++) {
+      if (localStorage.getItem(SESSION_USER_ID_KEYS[i]) === currentId) {
+        assignedRole = USER_ROLES[i];
+        foundExistingRole = true;
+        break;
       }
-    } else if (user2Id === currentId) {
-      assignedRole = 'user2';
-      setPartnerId(user1Id); 
-      setIsConnected(true);
-    } else {
-      setStatusMessage('Session is full. Please try again later.');
+    }
+
+    if (!foundExistingRole) {
+      for (let i = 0; i < MAX_USERS; i++) {
+        if (!localStorage.getItem(SESSION_USER_ID_KEYS[i])) {
+          localStorage.setItem(SESSION_USER_ID_KEYS[i], currentId);
+          assignedRole = USER_ROLES[i];
+          break;
+        }
+      }
     }
     
     if (assignedRole) {
       setMyRole(assignedRole);
+      const strokesToLoad: Partial<Record<ActualUserRole, Stroke[]>> = {};
+      
+      const myStrokesKey = SESSION_USER_STROKES_KEYS[USER_ROLES.indexOf(assignedRole)];
+      const storedMyStrokes = localStorage.getItem(myStrokesKey);
+      if (storedMyStrokes) {
+        try {
+          strokesToLoad[assignedRole] = JSON.parse(storedMyStrokes) as Stroke[];
+        } catch (e) { 
+          console.error("Error parsing my strokes", e); 
+          strokesToLoad[assignedRole] = [];
+        }
+      } else {
+        strokesToLoad[assignedRole] = [];
+      }
+
+      const others: ConnectedUser[] = [];
+      for (let i = 0; i < MAX_USERS; i++) {
+        const role = USER_ROLES[i];
+        if (role === assignedRole) continue;
+        const userId = localStorage.getItem(SESSION_USER_ID_KEYS[i]);
+        if (userId) {
+          others.push({ id: userId, role, color: USER_COLORS[role] });
+          const partnerStrokesKey = SESSION_USER_STROKES_KEYS[i];
+          const storedPartnerStrokes = localStorage.getItem(partnerStrokesKey);
+          if (storedPartnerStrokes) {
+            try {
+              strokesToLoad[role] = JSON.parse(storedPartnerStrokes) as Stroke[];
+            } catch (e) { strokesToLoad[role] = []; }
+          } else {
+            strokesToLoad[role] = [];
+          }
+        } else {
+            if (!(role in strokesToLoad)) { // Ensure empty array if slot is free and not my role
+                strokesToLoad[role] = [];
+            }
+        }
+      }
+      setConnectedUsers(others);
+      setAllStrokes(prev => ({ ...prev, ...strokesToLoad }));
+    } else {
+      setStatusMessage('Session is full. Please try again later.');
     }
   }, []);
 
+
   useEffect(() => {
-    if (isConnected && partnerId) {
-      setStatusMessage("Connected. Let's draw together!");
-    } else if (myRole === 'user1' && !partnerId) {
-      setStatusMessage('Waiting for a partner to connect...');
-    } else if (myRole === 'user2' && !partnerId && !isConnected) { 
-      setStatusMessage('Partner disconnected. Waiting for User 1...');
-    } else if (!myId || !myRole) {
+    if (!myRole && !myId) {
       setStatusMessage('Initializing...');
+    } else if (myRole && connectedUsers.length === 0 && MAX_USERS > 1) {
+      setStatusMessage('Waiting for others to connect...');
+    } else if (myRole && connectedUsers.length > 0) {
+      setStatusMessage(`Connected with ${connectedUsers.length} other user${connectedUsers.length > 1 ? 's' : ''}. Let's draw!`);
+    } else if (!myRole && myId) {
+       if (statusMessage === 'Initializing...') { 
+          setStatusMessage('Trying to join session...');
+       }
     }
-  }, [isConnected, partnerId, myRole, myId]);
+  }, [myRole, myId, connectedUsers, statusMessage]);
+
 
   useEffect(() => {
-    if (myRole && myId) {
-      const key = myRole === 'user1' ? SESSION_USER1_STROKES_KEY : SESSION_USER2_STROKES_KEY;
-      localStorage.setItem(key, JSON.stringify(localStrokes));
+    if (myRole && myId && allStrokes[myRole as ActualUserRole]) { // Ensure myRole is an ActualUserRole for indexing
+      const myStrokesKey = SESSION_USER_STROKES_KEYS[USER_ROLES.indexOf(myRole as ActualUserRole)];
+      localStorage.setItem(myStrokesKey, JSON.stringify(allStrokes[myRole as ActualUserRole]));
     }
-  }, [localStrokes, myRole, myId]);
+  }, [allStrokes, myRole, myId]); 
 
-  useEffect(() => {
-    if (isConnected && partnerId && myRole) {
-      const partnerStrokesKey = myRole === 'user1' ? SESSION_USER2_STROKES_KEY : SESSION_USER1_STROKES_KEY;
-      const storedPartnerStrokes = localStorage.getItem(partnerStrokesKey);
-      if (storedPartnerStrokes) {
-        try {
-          const parsedStrokes = JSON.parse(storedPartnerStrokes) as Stroke[];
-          setPartnerStrokes(parsedStrokes);
-        } catch (e) { console.error("Error parsing partner strokes", e); setPartnerStrokes([]); }
-      } else {
-        setPartnerStrokes([]);
-      }
-    }
-  }, [isConnected, partnerId, myRole]);
 
   useEffect(() => {
     if (!myId || !myRole) return;
 
     const handleStorageChange = (event: StorageEvent) => {
-      const currentRole = myRoleRef.current;
+      const currentMyRole = myRoleRef.current as ActualUserRole | null; // Cast for safety, check below
       const currentMyId = myIdRef.current;
-      if (!currentRole || !currentMyId) return;
+      if (!currentMyRole || !currentMyId) return;
 
-      const partnerIdKey = currentRole === 'user1' ? SESSION_USER2_ID_KEY : SESSION_USER1_ID_KEY;
-      const partnerStrokesKey = currentRole === 'user1' ? SESSION_USER2_STROKES_KEY : SESSION_USER1_STROKES_KEY;
+      SESSION_USER_ID_KEYS.forEach((key, index) => {
+        if (event.key === key) {
+          const changedUserRole = USER_ROLES[index]; // This is ActualUserRole
+          if (changedUserRole === currentMyRole) return; 
 
-      if (event.key === partnerIdKey) {
-        if (event.newValue && event.newValue !== currentMyId) {
-          setPartnerId(event.newValue);
-          setIsConnected(true);
-        } else if (!event.newValue) { 
-          setIsConnected(false);
-          setPartnerId(null);
-          setPartnerStrokes([]);
-          if (currentRole === 'user2') {
-            console.log('User1 left. User2 attempting to become User1.');
-            localStorage.removeItem(SESSION_USER2_ID_KEY);
-            localStorage.removeItem(SESSION_USER2_STROKES_KEY);
-            localStorage.setItem(SESSION_USER1_ID_KEY, currentMyId);
-            setMyRole('user1'); 
-          }
-        }
-      } else if (event.key === SESSION_USER1_ID_KEY && currentRole === 'user2') {
-          if(event.newValue && event.newValue !== partnerId) {
-            setPartnerId(event.newValue);
-            setIsConnected(true);
-          }
-      } else if (event.key === partnerStrokesKey) {
-        if (event.newValue) {
-          try {
-            const newPartnerStrokes = JSON.parse(event.newValue) as Stroke[];
-            setPartnerStrokes(Array.isArray(newPartnerStrokes) ? newPartnerStrokes : []);
-          } catch (e) { setPartnerStrokes([]); }
-        } else {
-          setPartnerStrokes([]);
-        }
-      } else if (event.key === CLEAR_CANVAS_KEY) {
-        if (event.newValue) {
-          try {
-            const clearEventData = JSON.parse(event.newValue);
-            if (clearEventData.clearedBy !== currentMyId) { 
-              console.log('Received clear canvas event from partner.');
-              setLocalStrokes([]);
-              setPartnerStrokes([]); 
+          const newUserId = event.newValue;
+          if (newUserId && newUserId !== currentMyId) { 
+            if (!connectedUsers.find(u => u.id === newUserId)) {
+              setConnectedUsers(prev => [...prev.filter(u => u.role !== changedUserRole), { id: newUserId, role: changedUserRole, color: USER_COLORS[changedUserRole] }]);
+              setStatusMessage(`${changedUserRole} has joined!`);
+              const strokesKey = SESSION_USER_STROKES_KEYS[index];
+              const storedStrokes = localStorage.getItem(strokesKey);
+              if (storedStrokes) {
+                try {
+                  setAllStrokes(prev => ({...prev, [changedUserRole]: JSON.parse(storedStrokes)}));
+                } catch(e) { setAllStrokes(prev => ({...prev, [changedUserRole]: []})); }
+              } else {
+                 setAllStrokes(prev => ({...prev, [changedUserRole]: []}));
+              }
             }
-          } catch(e) { console.error("Error parsing clear canvas event", e); }
+          } else if (!newUserId) { 
+            setConnectedUsers(prev => prev.filter(u => u.role !== changedUserRole));
+            setAllStrokes(prev => ({...prev, [changedUserRole]: [] })); 
+            setStatusMessage(`${changedUserRole} has left.`);
+          }
         }
+      });
+
+      SESSION_USER_STROKES_KEYS.forEach((key, index) => {
+        if (event.key === key) {
+          const strokesUserRole = USER_ROLES[index]; // ActualUserRole
+          if (strokesUserRole === currentMyRole) return; 
+
+          if (event.newValue) {
+            try {
+              const newPartnerStrokes = JSON.parse(event.newValue) as Stroke[];
+              setAllStrokes(prev => ({...prev, [strokesUserRole]: Array.isArray(newPartnerStrokes) ? newPartnerStrokes : [] }));
+            } catch (e) { setAllStrokes(prev => ({...prev, [strokesUserRole]: [] }));}
+          } else { 
+            setAllStrokes(prev => ({...prev, [strokesUserRole]: [] }));
+          }
+        }
+      });
+      
+      if (event.key === CLEAR_CANVAS_KEY && event.newValue) {
+        try {
+          const clearEventData = JSON.parse(event.newValue);
+          if (clearEventData.clearedBy !== currentMyId) {
+            setAllStrokes(() => ({ // Fully replace with a correctly typed object
+              user1: [], user2: [], user3: [], user4: [],
+            }));
+            setStatusMessage('Canvas cleared by another user.');
+          }
+        } catch(e) { console.error("Error parsing clear canvas event", e); }
       }
     };
 
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, [myId, myRole, partnerId]);
+  }, [myId, myRole, connectedUsers]); 
+
 
   useEffect(() => {
     const cleanup = () => {
       const role = myRoleRef.current;
       const id = myIdRef.current;
-      if (!id) return;
-      if (role === 'user1' && localStorage.getItem(SESSION_USER1_ID_KEY) === id) {
-        localStorage.removeItem(SESSION_USER1_ID_KEY);
-        localStorage.removeItem(SESSION_USER1_STROKES_KEY);
-      } else if (role === 'user2' && localStorage.getItem(SESSION_USER2_ID_KEY) === id) {
-        localStorage.removeItem(SESSION_USER2_ID_KEY);
-        localStorage.removeItem(SESSION_USER2_STROKES_KEY);
+      if (!id || !role) return; // role here can be null, but USER_ROLES.indexOf handles it by returning -1
+      const roleIndex = USER_ROLES.indexOf(role as ActualUserRole); // Cast because USER_ROLES contains ActualUserRole
+      if (roleIndex !== -1) {
+        if (localStorage.getItem(SESSION_USER_ID_KEYS[roleIndex]) === id) {
+          localStorage.removeItem(SESSION_USER_ID_KEYS[roleIndex]);
+          localStorage.removeItem(SESSION_USER_STROKES_KEYS[roleIndex]);
+        }
       }
     };
     window.addEventListener('beforeunload', cleanup);
@@ -257,7 +293,6 @@ const App: React.FC = () => {
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
     let clientX, clientY;
-
     if ('touches' in event) { 
       if (event.touches.length === 0) return null;
       clientX = event.touches[0].clientX;
@@ -270,29 +305,27 @@ const App: React.FC = () => {
   };
 
   const startDrawing = (event: React.MouseEvent | React.TouchEvent<HTMLDivElement>) => {
+    if (!myRole) return; // myRole here is UserRole; if null, can't draw
     if ('button' in event && event.button !== 0) return; 
     const pos = getPointerPosition(event);
     if (!pos) return;
-
     setIsDrawing(true);
     setCurrentDrawingPath([pos]);
   };
 
   const draw = (event: React.MouseEvent | React.TouchEvent<HTMLDivElement>) => {
-    if (!isDrawing) return;
+    if (!isDrawing || !myRole) return;
     const pos = getPointerPosition(event);
     if (!pos) return;
-    
     setCurrentDrawingPath(prev => [...prev, pos]);
-     if ('touches' in event && event.cancelable) { 
-        event.preventDefault(); 
-    }
+     if ('touches' in event && event.cancelable) event.preventDefault(); 
   };
 
   const endDrawing = () => {
-    if (!isDrawing) return;
+    if (!isDrawing || !myRole) return; // myRole is UserRole
     setIsDrawing(false);
     if (currentDrawingPath.length > 1) {
+      const actualRole = myRole as ActualUserRole; // Safe cast due to !myRole check above
       const newStroke: Stroke = {
         path: currentDrawingPath,
         color: (currentTool === 'pen' || currentTool === 'gravityPen') ? currentColor : ERASER_COLOR,
@@ -301,52 +334,58 @@ const App: React.FC = () => {
         creationTime: (currentTool === 'gravityPen' || isPulsingBrush) ? Date.now() : undefined,
         isPulsating: isPulsingBrush ? true : undefined,
       };
-      setLocalStrokes(prev => [...prev, newStroke]);
+      setAllStrokes(prev => ({
+        ...prev,
+        [actualRole]: [...(prev[actualRole] || []), newStroke]
+      }));
     }
     setCurrentDrawingPath([]);
   };
   
   const clearCanvas = () => {
-    setLocalStrokes([]);
-    setPartnerStrokes([]); 
+    setAllStrokes({ // Fully replace with a correctly typed object
+        user1: [], user2: [], user3: [], user4: [],
+    });
+
     if (myId) {
       localStorage.setItem(CLEAR_CANVAS_KEY, JSON.stringify({ clearedBy: myId, timestamp: Date.now() }));
     }
+     setStatusMessage('Canvas cleared.');
   };
 
   const redrawCanvas = useCallback((
     ctx: CanvasRenderingContext2D,
     width: number,
     height: number,
-    _localStrokes: Stroke[],
-    _partnerStrokes: Stroke[],
+    _allStrokes: Record<ActualUserRole, Stroke[]>, // Updated type
     _currentPath: Position[],
-    _isDrawing: boolean,
-    _drawingColor: string,
-    _strokeWidth: number,
-    _tool: DrawingTool,
+    _isDrawingCurrently: boolean,
+    _currentDrawingColor: string,
+    _currentStrokeWidth: number,
+    _currentTool: DrawingTool,
     _blendMode: BlendMode
   ) => {
     ctx.clearRect(0, 0, width, height);
     ctx.globalCompositeOperation = _blendMode;
 
-    const allStrokes = [..._partnerStrokes, ..._localStrokes];
-    allStrokes.sort((a, b) => (a.creationTime || 0) - (b.creationTime || 0));
-
+    const strokesToDraw: Stroke[] = [];
+    USER_ROLES.forEach(role => { // USER_ROLES are ActualUserRole
+      if (_allStrokes[role]) {
+        strokesToDraw.push(..._allStrokes[role]);
+      }
+    });
+    strokesToDraw.sort((a, b) => (a.creationTime || 0) - (b.creationTime || 0));
 
     const drawSingleStroke = (stroke: Stroke, isCurrent?: boolean) => {
       const path = stroke.path;
       if (path.length < 2 && !isCurrent) return; 
       if (path.length === 0 && isCurrent) return;
 
-
       ctx.beginPath();
-      
       let yOffset = 0;
       if (stroke.tool === 'gravityPen' && stroke.creationTime) {
         yOffset = (Date.now() - stroke.creationTime) * GRAVITY_FACTOR;
       }
-
       ctx.moveTo(path[0].x, path[0].y + (stroke.tool === 'gravityPen' ? yOffset : 0) );
       for (let i = 1; i < path.length; i++) {
         ctx.lineTo(path[i].x, path[i].y + (stroke.tool === 'gravityPen' ? yOffset : 0));
@@ -359,7 +398,6 @@ const App: React.FC = () => {
         finalStrokeWidth = stroke.strokeWidth + Math.sin(pulseProgress * 2 * Math.PI) * amplitude;
         finalStrokeWidth = Math.max(1, finalStrokeWidth); 
       }
-
       ctx.strokeStyle = stroke.color; 
       ctx.lineWidth = finalStrokeWidth;
       ctx.lineCap = 'round';
@@ -367,28 +405,32 @@ const App: React.FC = () => {
       ctx.stroke();
     };
 
-    allStrokes.forEach(s => drawSingleStroke(s));
+    strokesToDraw.forEach(s => drawSingleStroke(s));
 
-    if (_isDrawing && _currentPath.length > 0) {
-      const currentEffectiveTool = _tool; 
-      const currentEffectiveColor = (currentEffectiveTool === 'pen' || currentEffectiveTool === 'gravityPen') ? _drawingColor : ERASER_COLOR;
+    if (_isDrawingCurrently && _currentPath.length > 0 && myRole) { // myRole checks if a user is active
+      const currentEffectiveTool = _currentTool; 
+      const currentEffectiveColor = (currentEffectiveTool === 'pen' || currentEffectiveTool === 'gravityPen') ? _currentDrawingColor : ERASER_COLOR;
        drawSingleStroke({
           path: _currentPath,
           color: currentEffectiveColor,
-          strokeWidth: _strokeWidth,
+          strokeWidth: _currentStrokeWidth,
           tool: currentEffectiveTool, 
           isPulsating: isPulsingBrush, 
           creationTime: (currentEffectiveTool === 'gravityPen' || isPulsingBrush) ? Date.now() : undefined 
       }, true);
     }
-  }, [isPulsingBrush]); 
+  }, [isPulsingBrush, myRole]);
 
   useEffect(() => {
-    const hasAnimated =
-      localStrokes.some(s => s.tool === 'gravityPen' || s.isPulsating) ||
-      partnerStrokes.some(s => s.tool === 'gravityPen' || s.isPulsating);
+    let hasAnimated = false;
+    for (const role of USER_ROLES) { // USER_ROLES are ActualUserRole
+        if(allStrokes[role]?.some(s => s.tool === 'gravityPen' || s.isPulsating)) {
+            hasAnimated = true;
+            break;
+        }
+    }
     setAnimatedStrokesExist(hasAnimated);
-  }, [localStrokes, partnerStrokes]);
+  }, [allStrokes]);
 
 
   useEffect(() => {
@@ -401,7 +443,7 @@ const App: React.FC = () => {
       const animate = () => {
         redrawCanvas(
             ctx, canvas.width, canvas.height,
-            localStrokes, partnerStrokes,
+            allStrokes, 
             currentDrawingPath, isDrawing,
             currentColor, 
             currentStrokeWidth, currentTool,
@@ -414,7 +456,7 @@ const App: React.FC = () => {
     } else {
       redrawCanvas(
         ctx, canvas.width, canvas.height,
-        localStrokes, partnerStrokes,
+        allStrokes,
         currentDrawingPath, isDrawing,
         currentColor,
         currentStrokeWidth, currentTool,
@@ -422,13 +464,14 @@ const App: React.FC = () => {
       );
     }
   }, [
-    localStrokes, partnerStrokes, currentDrawingPath, isDrawing,
+    allStrokes, currentDrawingPath, isDrawing,
     currentColor, currentStrokeWidth, currentTool, blendMode,
     animatedStrokesExist, redrawCanvas, canvasRef, toolbarHeight 
   ]);
 
 
   const getCursorStyle = () => {
+    if (!myRole) return 'not-allowed'; 
     if (currentTool === 'pen') return 'crosshair';
     if (currentTool === 'eraser') return 'cell'; 
     if (currentTool === 'gravityPen') return isDrawing ? 'grabbing' : 'grab';
@@ -446,24 +489,25 @@ const App: React.FC = () => {
         currentStrokeWidth={currentStrokeWidth}
         setCurrentStrokeWidth={setCurrentStrokeWidth}
         clearCanvas={clearCanvas}
-        userAssignedColor={userAssignedColor}
+        myUserColor={myUserColor} 
         isPulsingBrush={isPulsingBrush}
         setIsPulsingBrush={setIsPulsingBrush}
         blendMode={blendMode}
         setBlendMode={setBlendMode}
+        isSessionActive={!!myRole} 
       />
       <div
         ref={drawingAreaRef}
-        className="flex-grow relative bg-white" // Drawing area remains white for contrast
+        className="flex-grow relative bg-white"
         style={{ cursor: getCursorStyle(), height: `calc(100vh - ${toolbarHeight}px)` }}
-        onMouseDown={startDrawing}
-        onMouseMove={draw}
-        onMouseUp={endDrawing}
-        onMouseLeave={endDrawing} 
-        onTouchStart={startDrawing}
-        onTouchMove={draw}
-        onTouchEnd={endDrawing}
-        onTouchCancel={endDrawing}
+        onMouseDown={myRole ? startDrawing : undefined}
+        onMouseMove={myRole ? draw : undefined}
+        onMouseUp={myRole ? endDrawing : undefined}
+        onMouseLeave={myRole ? endDrawing : undefined} 
+        onTouchStart={myRole ? startDrawing : undefined}
+        onTouchMove={myRole ? draw : undefined}
+        onTouchEnd={myRole ? endDrawing : undefined}
+        onTouchCancel={myRole ? endDrawing : undefined}
         role="application"
         aria-label="Shared drawing canvas"
       >

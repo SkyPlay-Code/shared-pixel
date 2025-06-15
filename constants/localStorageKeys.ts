@@ -1,14 +1,26 @@
-export const SESSION_USER1_ID_KEY = 'sharedPixelSessionUser1Id';
-export const SESSION_USER2_ID_KEY = 'sharedPixelSessionUser2Id';
+export const MAX_USERS = 4;
 
-// Old position keys - can be removed if not used by trails anymore, but keeping for now if a quick revert is needed.
-// For drawing, we'll use stroke-based keys.
-export const SESSION_USER1_POS_KEY = 'sharedPixelSessionUser1Pos';
-export const SESSION_USER2_POS_KEY = 'sharedPixelSessionUser2Pos';
+const buildUserKey = (base: string, userIndex: number): string => `${base}${userIndex + 1}`;
 
-// New keys for drawing strokes
-export const SESSION_USER1_STROKES_KEY = 'sharedPixelUser1Strokes';
-export const SESSION_USER2_STROKES_KEY = 'sharedPixelUser2Strokes';
+export const SESSION_USER_ID_BASE = 'sharedPixelSessionUser';
+export const SESSION_USER_STROKES_BASE = 'sharedPixelUserStrokes';
+
+export const SESSION_USER_ID_KEYS: string[] = Array.from(
+  { length: MAX_USERS },
+  (_, i) => buildUserKey(SESSION_USER_ID_BASE + 'Id', i)
+);
+
+export const SESSION_USER_STROKES_KEYS: string[] = Array.from(
+  { length: MAX_USERS },
+  (_, i) => buildUserKey(SESSION_USER_STROKES_BASE, i)
+);
+
+export const USER_ROLES: ('user1' | 'user2' | 'user3' | 'user4')[] = [
+  'user1',
+  'user2',
+  'user3',
+  'user4',
+];
 
 // Key for clear canvas event
 export const CLEAR_CANVAS_KEY = 'sharedPixelClearCanvas';

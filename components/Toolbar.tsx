@@ -9,11 +9,12 @@ interface ToolbarProps {
   currentStrokeWidth: number;
   setCurrentStrokeWidth: (width: number) => void;
   clearCanvas: () => void;
-  userAssignedColor: string;
+  myUserColor: string; // Changed from userAssignedColor
   isPulsingBrush: boolean;
   setIsPulsingBrush: (isPulsing: boolean) => void;
   blendMode: BlendMode;
   setBlendMode: (mode: BlendMode) => void;
+  isSessionActive: boolean; // New prop
 }
 
 const PREDEFINED_COLORS = ['#000000', '#EF4444', '#22C55E', '#3B82F6', '#EAB308', '#EC4899', '#06B6D4', '#A855F7'];
@@ -32,26 +33,50 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
   currentTool, setCurrentTool,
   currentColor, setCurrentColor,
   currentStrokeWidth, setCurrentStrokeWidth,
-  clearCanvas, userAssignedColor,
+  clearCanvas, myUserColor, // Changed prop name
   isPulsingBrush, setIsPulsingBrush,
-  blendMode, setBlendMode
+  blendMode, setBlendMode,
+  isSessionActive // New prop
 }, ref) => {
 
   const handleToolChange = (tool: DrawingTool) => {
+    if (!isSessionActive) return;
     setCurrentTool(tool);
     if ((tool === 'pen' || tool === 'gravityPen') && currentColor === ERASER_COLOR) {
-      setCurrentColor(userAssignedColor);
+      setCurrentColor(myUserColor);
     }
   };
 
+  const handleColorClick = (color: string) => {
+    if (!isSessionActive) return;
+    setCurrentColor(color);
+    if (currentTool === 'eraser') setCurrentTool('pen');
+  }
+
+  const handleStrokeWidthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isSessionActive) return;
+    setCurrentStrokeWidth(Number(e.target.value));
+  }
+  
+  const handlePulsingToggle = () => {
+    if (!isSessionActive) return;
+    setIsPulsingBrush(!isPulsingBrush);
+  }
+
   const cycleBlendMode = () => {
+    if (!isSessionActive) return;
     const currentIndex = BLEND_MODES.indexOf(blendMode);
     const nextIndex = (currentIndex + 1) % BLEND_MODES.length;
     setBlendMode(BLEND_MODES[nextIndex]);
   };
 
-  const commonButtonClass = "p-2 transition-all duration-200 ease-in-out";
-  const toolButtonBase = `${commonButtonClass} border-t border-b border-sky-600/70 text-sky-400 hover:bg-sky-500/30 hover:text-sky-300 hover:shadow-md hover:shadow-sky-500/50`;
+  const handleClearCanvas = () => {
+    if (!isSessionActive) return;
+    clearCanvas();
+  }
+
+  const commonButtonClass = "p-2 transition-all duration-200 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed";
+  const toolButtonBase = `${commonButtonClass} border-t border-b border-sky-600/70 text-sky-400 hover:enabled:bg-sky-500/30 hover:enabled:text-sky-300 hover:enabled:shadow-md hover:enabled:shadow-sky-500/50`;
   const toolButtonActive = "bg-sky-500 text-black ring-2 ring-sky-300";
 
   return (
@@ -64,6 +89,7 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
         <button
           title="Pen"
           onClick={() => handleToolChange('pen')}
+          disabled={!isSessionActive}
           className={`${toolButtonBase} ${currentTool === 'pen' ? toolButtonActive : ''}`}
           aria-pressed={currentTool === 'pen'}
         >
@@ -74,6 +100,7 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
         <button
           title="Gravity Pen"
           onClick={() => handleToolChange('gravityPen')}
+          disabled={!isSessionActive}
           className={`${toolButtonBase} border-l border-r border-sky-600/70 ${currentTool === 'gravityPen' ? toolButtonActive : ''}`}
           aria-pressed={currentTool === 'gravityPen'}
         >
@@ -85,6 +112,7 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
         <button
           title="Eraser"
           onClick={() => handleToolChange('eraser')}
+          disabled={!isSessionActive}
           className={`${toolButtonBase} ${currentTool === 'eraser' ? toolButtonActive : ''}`}
           aria-pressed={currentTool === 'eraser'}
         >
@@ -97,16 +125,15 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
 
       {/* Color Picker */}
       <div className="flex gap-1.5 items-center">
-        {[userAssignedColor, ...PREDEFINED_COLORS].filter((c, i, a) => a.indexOf(c) === i).map(color => (
+        {[myUserColor, ...PREDEFINED_COLORS].filter((c, i, a) => a.indexOf(c) === i && c).map(color => ( // Ensure myUserColor is defined
           <button
             key={color}
-            title={color === userAssignedColor ? `Your Color (${color.toUpperCase()})` : color.toUpperCase()}
-            onClick={() => {
-                setCurrentColor(color);
-                if (currentTool === 'eraser') setCurrentTool('pen'); 
-            }}
-            className={`w-6 h-6 rounded-full border hover:border-fuchsia-400/80 transition-all duration-150 ease-in-out
-                        ${(currentTool === 'pen' || currentTool === 'gravityPen') && currentColor === color ? 'ring-2 ring-offset-2 ring-offset-black ring-fuchsia-400 border-transparent' : 'border-slate-600 hover:border-slate-400'}
+            title={color === myUserColor ? `Your Color (${color.toUpperCase()})` : color.toUpperCase()}
+            onClick={() => handleColorClick(color)}
+            disabled={!isSessionActive}
+            className={`w-6 h-6 rounded-full border hover:enabled:border-fuchsia-400/80 transition-all duration-150 ease-in-out
+                        ${(currentTool === 'pen' || currentTool === 'gravityPen') && currentColor === color ? 'ring-2 ring-offset-2 ring-offset-black ring-fuchsia-400 border-transparent' : 'border-slate-600 hover:enabled:border-slate-400'}
+                        disabled:opacity-50 disabled:cursor-not-allowed
                       `}
             style={{ backgroundColor: color }}
             aria-label={`Select color ${color}`}
@@ -117,7 +144,7 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
 
       {/* Stroke Width Selector */}
       <div className="flex items-center gap-2">
-         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-fuchsia-400">
+         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 text-fuchsia-400 ${!isSessionActive ? 'opacity-50' : ''}`}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5.16 12.75M9.75 3.104L12 3.75m-2.25-.646V1.5m6.375 7.375L10.5 14.25m8.25-4.5V21M18.75 14.25L10.5 21m0-6.75h7.5" />
          </svg>
         <input
@@ -125,19 +152,21 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
           min="1"
           max="50"
           value={currentStrokeWidth}
-          onChange={(e) => setCurrentStrokeWidth(Number(e.target.value))}
-          className="w-20 md:w-24 cursor-pointer accent-fuchsia-500 bg-gray-700/50 rounded-lg"
+          onChange={handleStrokeWidthChange}
+          disabled={!isSessionActive}
+          className={`w-20 md:w-24 cursor-pointer accent-fuchsia-500 bg-gray-700/50 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed`}
           title={`Stroke width: ${currentStrokeWidth}px`}
           aria-label="Stroke width"
         />
-        <span className="text-sm w-6 text-right text-fuchsia-400">{currentStrokeWidth}</span>
+        <span className={`text-sm w-6 text-right text-fuchsia-400 ${!isSessionActive ? 'opacity-50' : ''}`}>{currentStrokeWidth}</span>
       </div>
 
       {/* Pulsing Brush Toggle */}
       <button
         title={isPulsingBrush ? "Disable Pulsing Effect" : "Enable Pulsing Effect"}
-        onClick={() => setIsPulsingBrush(!isPulsingBrush)}
-        className={`${commonButtonClass} rounded ${isPulsingBrush ? 'bg-purple-500 text-black ring-2 ring-purple-300' : 'bg-gray-700/50 text-purple-400 hover:bg-purple-500/30'}`}
+        onClick={handlePulsingToggle}
+        disabled={!isSessionActive}
+        className={`${commonButtonClass} rounded ${isPulsingBrush ? 'bg-purple-500 text-black ring-2 ring-purple-300' : 'bg-gray-700/50 text-purple-400 hover:enabled:bg-purple-500/30'}`}
         aria-pressed={isPulsingBrush}
       >
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
@@ -149,15 +178,17 @@ const Toolbar = React.forwardRef<HTMLDivElement, ToolbarProps>(({
       <button
         title={`Blend Mode: ${BLEND_MODE_NAMES[blendMode]}`}
         onClick={cycleBlendMode}
-        className={`${commonButtonClass} rounded bg-teal-600/50 text-teal-300 hover:bg-teal-500/70 min-w-[90px] text-sm`}
+        disabled={!isSessionActive}
+        className={`${commonButtonClass} rounded bg-teal-600/50 text-teal-300 hover:enabled:bg-teal-500/70 min-w-[90px] text-sm`}
       >
         {BLEND_MODE_NAMES[blendMode]}
       </button>
       
       {/* Clear Canvas Button */}
       <button
-        onClick={clearCanvas}
-        className={`${commonButtonClass} rounded bg-red-600/60 text-red-300 hover:bg-red-500/70 flex items-center gap-1`}
+        onClick={handleClearCanvas}
+        disabled={!isSessionActive}
+        className={`${commonButtonClass} rounded bg-red-600/60 text-red-300 hover:enabled:bg-red-500/70 flex items-center gap-1`}
         title="Clear Canvas"
       >
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">

@@ -3,7 +3,11 @@ export interface Position {
   y: number;
 }
 
-export type UserRole = 'user1' | 'user2' | null;
+// UserRole can include null for states where a role is not yet assigned or applicable.
+export type UserRole = 'user1' | 'user2' | 'user3' | 'user4' | null;
+
+// ActualUserRole represents roles that actively participate in drawing and have associated strokes.
+export type ActualUserRole = 'user1' | 'user2' | 'user3' | 'user4';
 
 export type DrawingTool = 'pen' | 'eraser' | 'gravityPen';
 
