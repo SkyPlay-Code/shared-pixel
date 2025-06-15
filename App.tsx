@@ -1,43 +1,66 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Position, UserRole } from './types';
-import Trail from './components/Trail'; // Changed from Pixel to Trail
+import { Position, UserRole, Stroke } from './types';
 import StatusMessage from './components/StatusMessage';
 import {
   SESSION_USER1_ID_KEY,
   SESSION_USER2_ID_KEY,
-  SESSION_USER1_POS_KEY,
-  SESSION_USER2_POS_KEY,
+  SESSION_USER1_STROKES_KEY,
+  SESSION_USER2_STROKES_KEY,
 } from './constants/localStorageKeys';
 
 const generateUniqueId = (): string => {
   return Math.random().toString(36).substring(2, 11);
 };
 
-const MAX_TRAIL_LENGTH = 75;
-const MY_TRAIL_COLOR_CLASS = "bg-pink-500";
-const PARTNER_TRAIL_COLOR_CLASS = "bg-cyan-500";
+const USER1_COLOR = 'rgba(236, 72, 153, 1)'; // Pink
+const USER2_COLOR = 'rgba(34, 211, 238, 1)';  // Cyan
+const STROKE_WIDTH = 4;
+
 
 const App: React.FC = () => {
   const [myId, setMyId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<UserRole>(null);
   const [partnerId, setPartnerId] = useState<string | null>(null);
   
-  const [myTrail, setMyTrail] = useState<Position[]>([]);
-  const [partnerTrail, setPartnerTrail] = useState<Position[]>([]);
-  
   const [statusMessage, setStatusMessage] = useState<string>('Initializing...');
   const [isConnected, setIsConnected] = useState<boolean>(false);
 
   const myIdRef = useRef<string | null>(null);
   const myRoleRef = useRef<UserRole>(null);
+
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState<boolean>(false);
+  const [currentDrawingPath, setCurrentDrawingPath] = useState<Position[]>([]);
+  const [localStrokes, setLocalStrokes] = useState<Stroke[]>([]);
+  const [partnerStrokes, setPartnerStrokes] = useState<Stroke[]>([]);
   
+  const [myDrawColor, setMyDrawColor] = useState<string>(USER1_COLOR);
+
+
   useEffect(() => {
     myIdRef.current = myId;
+  }, [myId]);
+
+  useEffect(() => {
     myRoleRef.current = myRole;
-  }, [myId, myRole]);
+    if (myRole === 'user1') {
+      setMyDrawColor(USER1_COLOR);
+    } else if (myRole === 'user2') {
+      setMyDrawColor(USER2_COLOR);
+    }
+  }, [myRole]);
 
+  // Canvas setup
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      // Set canvas dimensions once on mount
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+  }, []);
 
+  // Role assignment and initial connection logic
   useEffect(() => {
     const currentId = generateUniqueId();
     setMyId(currentId); 
@@ -47,47 +70,54 @@ const App: React.FC = () => {
 
     console.log(`[App Init] currentId: ${currentId}, user1Store: ${user1IdFromStorage}, user2Store: ${user2IdFromStorage}`);
 
+    let assignedRole: UserRole = null;
+
     if (!user1IdFromStorage) {
       localStorage.setItem(SESSION_USER1_ID_KEY, currentId);
-      setMyRole('user1');
-      // Status message set by later effect
+      assignedRole = 'user1';
     } else if (!user2IdFromStorage) {
       if (user1IdFromStorage === currentId) { 
         setStatusMessage('Error: ID conflict. Please refresh.');
-        console.error(`[App Init] ID conflict as user2. currentId: ${currentId}`);
         return;
       }
       localStorage.setItem(SESSION_USER2_ID_KEY, currentId);
-      setMyRole('user2');
+      assignedRole = 'user2';
       setPartnerId(user1IdFromStorage);
       setIsConnected(true); 
     } else {
        if (user1IdFromStorage === currentId) { 
-        setMyRole('user1');
+        assignedRole = 'user1';
         if(user2IdFromStorage){
             setPartnerId(user2IdFromStorage);
             setIsConnected(true);
         }
        } else if (user2IdFromStorage === currentId) { 
-        setMyRole('user2');
+        assignedRole = 'user2';
         setPartnerId(user1IdFromStorage);
         setIsConnected(true);
        } else {
         setStatusMessage('Session is full. Please try again later or close other tabs.');
+        // Potentially clear own ID if one was tentatively set
        }
     }
+    
+    if (assignedRole) {
+      setMyRole(assignedRole);
+      // Trigger initial save of (empty) local strokes once role is set
+      // This will be handled by the useEffect watching [localStrokes, myRole, myId]
+    }
+
   }, []);
 
+  // Update status message based on connection state
   useEffect(() => {
     if (isConnected && partnerId) {
-      setStatusMessage("You are connected to another person. You cannot speak. You cannot chat. You can only see their movement.");
+      setStatusMessage("You are connected. Let's draw together!");
       console.log(`[App Status] Connected. Role: ${myRole}, Partner: ${partnerId}`);
     } else if (myRole === 'user1' && !partnerId) {
-      setStatusMessage('Waiting for another person...');
+      setStatusMessage('Waiting for another person to connect...');
       console.log(`[App Status] Waiting (user1, no partner). Role: ${myRole}`);
-    } else if (myRole === 'user2' && !partnerId && !isConnected) { // user2 lost connection or user1 left
-        // This state will quickly transition if user2 becomes user1.
-        // If it lingers, it's an error or waiting state after user1 disconnects.
+    } else if (myRole === 'user2' && !partnerId && !isConnected) { 
         setStatusMessage('Partner disconnected. Waiting or attempting to reconnect role...');
         console.log(`[App Status] User2 but no partnerId and not connected. Role: ${myRole}`);
     } else if (!myId || !myRole) {
@@ -95,80 +125,88 @@ const App: React.FC = () => {
     }
   }, [isConnected, partnerId, myRole, myId]);
 
-  // Mouse movement tracking - updates local myTrail
-  useEffect(() => {
-    const handleMouseMove = (event: MouseEvent) => {
-      const newPosition = { x: event.clientX, y: event.clientY };
-      setMyTrail(prevTrail => {
-        const updatedTrail = [...prevTrail, newPosition];
-        if (updatedTrail.length > MAX_TRAIL_LENGTH) {
-          return updatedTrail.slice(updatedTrail.length - MAX_TRAIL_LENGTH);
-        }
-        return updatedTrail;
-      });
-    };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-    };
-  }, []); // Runs once
-
-  // Persist myTrail to localStorage when it changes
+  // Persist localStrokes to localStorage
   useEffect(() => {
-    if (myRole && myId) { // Ensure role and ID are set before trying to save
-      const posKey = myRole === 'user1' ? SESSION_USER1_POS_KEY : SESSION_USER2_POS_KEY;
-      if (myTrail.length > 0) { // Only save if there's something to save
-          try {
-            localStorage.setItem(posKey, JSON.stringify(myTrail));
-          } catch (e) {
-            console.error("[App MyTrail Sync] Error stringifying or setting myTrail in localStorage", e);
-          }
-      } else {
-        // If myTrail becomes empty (e.g. after a clear), ensure localStorage reflects this
-        // However, trails are usually only cleared on disconnect or init.
-        // Avoid removing the key if it's just empty initially.
+    if (myRole && myId) {
+      const key = myRole === 'user1' ? SESSION_USER1_STROKES_KEY : SESSION_USER2_STROKES_KEY;
+      try {
+        console.log(`[App MyStrokes Sync] Saving ${localStrokes.length} strokes to ${key}`);
+        localStorage.setItem(key, JSON.stringify(localStrokes));
+      } catch (e) {
+        console.error("[App MyStrokes Sync] Error stringifying or setting localStrokes in localStorage", e);
       }
     }
-  }, [myTrail, myRole, myId]);
+  }, [localStrokes, myRole, myId]); // Runs when localStrokes, myRole, or myId changes
+
+  // Load partner's strokes on connection or when partner changes
+  useEffect(() => {
+    if (isConnected && partnerId && myRole) {
+      const partnerStrokesKey = myRole === 'user1' ? SESSION_USER2_STROKES_KEY : SESSION_USER1_STROKES_KEY;
+      const storedPartnerStrokes = localStorage.getItem(partnerStrokesKey);
+      if (storedPartnerStrokes) {
+        try {
+          const parsedStrokes = JSON.parse(storedPartnerStrokes) as Stroke[];
+          if (Array.isArray(parsedStrokes)) {
+            setPartnerStrokes(parsedStrokes);
+            console.log(`[App PartnerStrokes Load] Loaded ${parsedStrokes.length} strokes for partner ${partnerId}`);
+          }
+        } catch (e) {
+          console.error("[App PartnerStrokes Load] Error parsing partner strokes", e);
+          setPartnerStrokes([]);
+        }
+      } else {
+         // Partner might not have drawn anything yet, or key was cleared
+         setPartnerStrokes([]);
+      }
+       // Ensure local strokes are broadcasted in case partner joined after us.
+       // The useEffect watching localStrokes should handle this, but an explicit call might be
+       // considered if issues arise. For now, rely on the existing useEffect.
+    }
+  }, [isConnected, partnerId, myRole]);
 
 
-  // localStorage event listener for inter-tab communication
+  // localStorage event listener
   useEffect(() => {
     if (!myId || !myRole) {
       console.log(`[App StorageEffect] Listener not attached yet (myId: ${myId}, myRole: ${myRole})`);
       return;
     }
-    console.log(`[App StorageEffect] Attaching listener. MyId: ${myId}, MyRole: ${myRole}`);
+    console.log(`[App StorageEffect] Attaching listener. MyId: ${myId}, MyRole: ${myRoleRef.current}`);
 
     const handleStorageChange = (event: StorageEvent) => {
-      console.log(`[App StorageChange] Event: key=${event.key}, myRole=${myRole}`);
+      console.log(`[App StorageChange] Event: key=${event.key}, myRole=${myRoleRef.current}`);
+      const currentRole = myRoleRef.current; // Use ref for current role in handler closure
+      const currentMyId = myIdRef.current;
 
-      if (event.key === SESSION_USER1_ID_KEY) { // User1's ID changed (or user1 left/joined)
-        if (myRole === 'user2') {
+      if (!currentRole || !currentMyId) return;
+
+      const partnerStrokesKey = currentRole === 'user1' ? SESSION_USER2_STROKES_KEY : SESSION_USER1_STROKES_KEY;
+      const myStrokesKey = currentRole === 'user1' ? SESSION_USER1_STROKES_KEY : SESSION_USER2_STROKES_KEY;
+      
+      if (event.key === SESSION_USER1_ID_KEY) {
+        if (currentRole === 'user2') {
           if (!event.newValue) { // User1 left
             console.log('[App StorageChange] User1 left. I am User2, attempting to become User1.');
             setIsConnected(false);
             setPartnerId(null);
-            setPartnerTrail([]); // Clear partner trail
+            setPartnerStrokes([]); 
             
             localStorage.removeItem(SESSION_USER2_ID_KEY); 
-            localStorage.removeItem(SESSION_USER2_POS_KEY);
-            // Attempt to become user1
-            if(myId) localStorage.setItem(SESSION_USER1_ID_KEY, myId); 
+            localStorage.removeItem(SESSION_USER2_STROKES_KEY);
+            if(currentMyId) localStorage.setItem(SESSION_USER1_ID_KEY, currentMyId); 
             setMyRole('user1'); 
-            // My trail remains, partner trail cleared. Status will update.
-          } else { // User1 ID present (could be new user1, or same one re-asserting)
+            // setLocalStrokes([]); // User 2's strokes become User 1's strokes
+          } else { 
              if (partnerId !== event.newValue) {
-                console.log(`[App StorageChange] User1 ID changed/appeared. I am User2, updating partnerId from ${partnerId} to ${event.newValue}`);
                 setPartnerId(event.newValue);
              }
-             if (!isConnected) setIsConnected(true); // Connect if not already
+             if (!isConnected) setIsConnected(true);
           }
         }
-      } else if (event.key === SESSION_USER2_ID_KEY) { // User2's ID changed (or user2 left/joined)
-        if (myRole === 'user1') {
-          if (event.newValue && event.newValue !== myId) { // User2 joined or changed
+      } else if (event.key === SESSION_USER2_ID_KEY) {
+        if (currentRole === 'user1') {
+          if (event.newValue && event.newValue !== currentMyId) {
             console.log(`[App StorageChange] User2 joined/changed: ${event.newValue}. I am User1.`);
             setPartnerId(event.newValue);
             setIsConnected(true);
@@ -176,40 +214,34 @@ const App: React.FC = () => {
             console.log('[App StorageChange] User2 left. I am User1.');
             setIsConnected(false);
             setPartnerId(null);
-            setPartnerTrail([]); // Clear partner trail
-            localStorage.removeItem(SESSION_USER2_POS_KEY); 
+            setPartnerStrokes([]);
+            localStorage.removeItem(SESSION_USER2_STROKES_KEY); 
           }
         }
-      } else if (event.key === SESSION_USER1_POS_KEY && myRole === 'user2') {
+      } else if (event.key === partnerStrokesKey) {
         if (event.newValue) {
           try {
-            const trail = JSON.parse(event.newValue) as Position[];
-            if (Array.isArray(trail)) setPartnerTrail(trail);
-            else setPartnerTrail([]);
-          } catch (e) { console.error("[App StorageChange] Error parsing user1 trail", e); setPartnerTrail([]); }
+            const newPartnerStrokes = JSON.parse(event.newValue) as Stroke[];
+            if (Array.isArray(newPartnerStrokes)) {
+              setPartnerStrokes(newPartnerStrokes);
+              console.log(`[App StorageChange] Received ${newPartnerStrokes.length} strokes from partner.`);
+            } else { setPartnerStrokes([]); }
+          } catch (e) { console.error("[App StorageChange] Error parsing partner strokes", e); setPartnerStrokes([]); }
         } else {
-          setPartnerTrail([]); // User1 cleared their trail data
-        }
-      } else if (event.key === SESSION_USER2_POS_KEY && myRole === 'user1') {
-         if (event.newValue) {
-          try {
-            const trail = JSON.parse(event.newValue) as Position[];
-            if (Array.isArray(trail)) setPartnerTrail(trail);
-            else setPartnerTrail([]);
-          } catch (e) { console.error("[App StorageChange] Error parsing user2 trail", e); setPartnerTrail([]); }
-        } else {
-          setPartnerTrail([]); // User2 cleared their trail data
+          setPartnerStrokes([]); // Partner cleared their strokes or left
+          console.log(`[App StorageChange] Partner strokes cleared or partner left (key: ${partnerStrokesKey}).`);
         }
       }
     };
 
     window.addEventListener('storage', handleStorageChange);
     return () => {
-      console.log(`[App StorageEffect] Removing listener. MyId: ${myId}, MyRole: ${myRole}`);
+      console.log(`[App StorageEffect] Removing listener. MyId: ${myIdRef.current}, MyRole: ${myRoleRef.current}`);
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, [myId, myRole, partnerId, isConnected]); 
+  }, [myId, myRole]); // Re-attach if myId or myRole changes (e.g., user2 becomes user1)
 
+  // Cleanup on unload
   useEffect(() => {
     const cleanup = () => {
       const role = myRoleRef.current;
@@ -221,33 +253,112 @@ const App: React.FC = () => {
       if (role === 'user1' && localStorage.getItem(SESSION_USER1_ID_KEY) === id) {
           console.log('[App Cleanup] I am User1, clearing all session data.');
           localStorage.removeItem(SESSION_USER1_ID_KEY);
-          localStorage.removeItem(SESSION_USER1_POS_KEY);
+          localStorage.removeItem(SESSION_USER1_STROKES_KEY);
           localStorage.removeItem(SESSION_USER2_ID_KEY); 
-          localStorage.removeItem(SESSION_USER2_POS_KEY);
+          localStorage.removeItem(SESSION_USER2_STROKES_KEY);
       } else if (role === 'user2' && localStorage.getItem(SESSION_USER2_ID_KEY) === id) {
           console.log('[App Cleanup] I am User2, clearing my data.');
           localStorage.removeItem(SESSION_USER2_ID_KEY);
-          localStorage.removeItem(SESSION_USER2_POS_KEY);
+          localStorage.removeItem(SESSION_USER2_STROKES_KEY);
       }
     };
     
     window.addEventListener('beforeunload', cleanup);
     return () => {
       window.removeEventListener('beforeunload', cleanup);
-      // Run cleanup if component unmounts for other reasons (e.g. navigation, error boundary)
-      // This ensures that if the tab isn't closed but the component unmounts,
-      // it still attempts to clean up its localStorage entries.
       cleanup(); 
     };
   }, []); 
 
+  // Drawing logic
+  const getMousePosition = (event: React.MouseEvent): Position => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: -1, y: -1 };
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+  };
+
+  const handleMouseDown = (event: React.MouseEvent) => {
+    if (event.button !== 0) return; // Only main click
+    setIsDrawing(true);
+    const pos = getMousePosition(event);
+    setCurrentDrawingPath([pos]);
+  };
+
+  const handleMouseMove = (event: React.MouseEvent) => {
+    if (!isDrawing) return;
+    const pos = getMousePosition(event);
+    setCurrentDrawingPath(prev => [...prev, pos]);
+  };
+
+  const handleMouseUp = () => {
+    if (!isDrawing) return;
+    setIsDrawing(false);
+    if (currentDrawingPath.length > 1) { // Save if it's more than a dot
+      setLocalStrokes(prev => [...prev, { path: currentDrawingPath, color: myDrawColor }]);
+    }
+    setCurrentDrawingPath([]);
+  };
+  
+  const handleMouseLeave = () => {
+    if (isDrawing) { // If mouse leaves canvas while drawing, end the stroke
+        handleMouseUp();
+    }
+  }
+
+  // Canvas rendering effect
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!ctx || !canvas) return;
+
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Function to draw a single stroke
+    const drawStroke = (stroke: Stroke) => {
+      if (stroke.path.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(stroke.path[0].x, stroke.path[0].y);
+      for (let i = 1; i < stroke.path.length; i++) {
+        ctx.lineTo(stroke.path[i].x, stroke.path[i].y);
+      }
+      ctx.strokeStyle = stroke.color;
+      ctx.lineWidth = STROKE_WIDTH;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    };
+
+    // Draw all partner strokes
+    partnerStrokes.forEach(drawStroke);
+    
+    // Draw all local completed strokes
+    localStrokes.forEach(drawStroke);
+
+    // Draw current path being drawn by local user
+    if (isDrawing && currentDrawingPath.length > 0) {
+      drawStroke({ path: currentDrawingPath, color: myDrawColor });
+    }
+
+  }, [localStrokes, partnerStrokes, currentDrawingPath, isDrawing, myDrawColor]);
+
   return (
-    <div className="relative h-screen w-screen bg-gray-900 cursor-none overflow-hidden" aria-live="polite">
+    <div 
+      className="relative h-screen w-screen bg-white overflow-hidden cursor-crosshair"
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseLeave} // End drawing if mouse leaves container
+      aria-label="Shared drawing canvas"
+      role="application"
+    >
       <StatusMessage message={statusMessage} />
-      <Trail points={myTrail} colorClass={MY_TRAIL_COLOR_CLASS} baseSize={7} />
-      {isConnected && partnerId && (
-        <Trail points={partnerTrail} colorClass={PARTNER_TRAIL_COLOR_CLASS} baseSize={7} />
-      )}
+      <canvas ref={canvasRef} id="drawingCanvas" className="block" />
+      {/* The canvas itself doesn't need mouse handlers if the parent div handles them */}
     </div>
   );
 };
