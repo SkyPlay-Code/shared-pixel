@@ -1,5 +1,6 @@
 {
   "name": "The Shared Pixel",
   "description": "A minimalist experiment in non-verbal communication. Connect with a stranger and see only their mouse cursor as a single pixel on your screen, while they see yours. No chat, no words, just shared movement.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "prompt": ""
 }
