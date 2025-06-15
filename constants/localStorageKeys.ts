@@ -9,3 +9,6 @@ export const SESSION_USER2_POS_KEY = 'sharedPixelSessionUser2Pos';
 // New keys for drawing strokes
 export const SESSION_USER1_STROKES_KEY = 'sharedPixelUser1Strokes';
 export const SESSION_USER2_STROKES_KEY = 'sharedPixelUser2Strokes';
+
+// Key for clear canvas event
+export const CLEAR_CANVAS_KEY = 'sharedPixelClearCanvas';

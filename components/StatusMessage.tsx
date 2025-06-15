@@ -7,7 +7,7 @@ interface StatusMessageProps {
 
 const StatusMessage: React.FC<StatusMessageProps> = ({ message }) => {
   return (
-    <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-gray-100 bg-opacity-80 text-gray-700 px-4 py-2 rounded-md shadow-lg text-sm z-10">
+    <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-gray-700 bg-opacity-80 text-white px-4 py-2 rounded-md shadow-lg text-sm z-30 pointer-events-none">
       {message}
     </div>
   );
