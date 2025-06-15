@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Position, UserRole, Stroke, DrawingTool } from './types';
+import { Position, UserRole, Stroke, DrawingTool, BlendMode } from './types';
 import StatusMessage from './components/StatusMessage';
 import Toolbar from './components/Toolbar';
 import {
@@ -16,9 +16,12 @@ const generateUniqueId = (): string => {
 
 const USER1_COLOR = 'rgba(236, 72, 153, 1)'; // Pink
 const USER2_COLOR = 'rgba(34, 211, 238, 1)';  // Cyan
-const ERASER_COLOR = '#FFFFFF'; // Canvas background color, effectively "erasing"
+const ERASER_COLOR = '#FFFFFF'; 
 const DEFAULT_STROKE_WIDTH = 4;
 
+const GRAVITY_FACTOR = 0.005; // pixels per millisecond for gravity effect
+const PULSE_PERIOD = 600; // milliseconds for one full pulse cycle
+const PULSE_AMPLITUDE_RATIO = 0.4; // e.g., 40% of base strokeWidth for pulsing
 
 const App: React.FC = () => {
   const [myId, setMyId] = useState<string | null>(null);
@@ -32,9 +35,9 @@ const App: React.FC = () => {
   const myRoleRef = useRef<UserRole>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const drawingAreaRef = useRef<HTMLDivElement>(null); // For canvas size
+  const drawingAreaRef = useRef<HTMLDivElement>(null); 
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const [toolbarHeight, setToolbarHeight] = useState(60); // Initial estimate
+  const [toolbarHeight, setToolbarHeight] = useState(60); 
 
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
   const [currentDrawingPath, setCurrentDrawingPath] = useState<Position[]>([]);
@@ -45,6 +48,12 @@ const App: React.FC = () => {
   const [currentTool, setCurrentTool] = useState<DrawingTool>('pen');
   const [currentColor, setCurrentColor] = useState<string>(userAssignedColor);
   const [currentStrokeWidth, setCurrentStrokeWidth] = useState<number>(DEFAULT_STROKE_WIDTH);
+
+  // New "insane" feature states
+  const [isPulsingBrush, setIsPulsingBrush] = useState<boolean>(false);
+  const [blendMode, setBlendMode] = useState<BlendMode>('source-over');
+  const [animatedStrokesExist, setAnimatedStrokesExist] = useState<boolean>(false);
+
 
   useEffect(() => {
     myIdRef.current = myId;
@@ -59,50 +68,40 @@ const App: React.FC = () => {
       newAssignedColor = USER2_COLOR;
     }
     setUserAssignedColor(newAssignedColor);
-    // If current tool is pen and current color is one of the base user colors (or default initial), update it.
-    // This avoids overriding a user's palette choice unless their role just changed the base.
-    if (currentTool === 'pen' && (currentColor === USER1_COLOR || currentColor === USER2_COLOR)) {
+    
+    const penTools: DrawingTool[] = ['pen', 'gravityPen'];
+    if (penTools.includes(currentTool) && (currentColor === USER1_COLOR || currentColor === USER2_COLOR || currentColor === ERASER_COLOR /* if eraser was active and color was white */)) {
       setCurrentColor(newAssignedColor);
     }
-  }, [myRole, currentTool, currentColor]); // currentColor added to re-evaluate if user changes it then role changes
+  }, [myRole]); // Removed currentTool, currentColor from deps to avoid loops, simplify logic to role change driving color. User can override.
 
-  // Toolbar height calculation
    useEffect(() => {
     const calculateToolbarHeight = () => {
       if (toolbarRef.current) {
         setToolbarHeight(toolbarRef.current.offsetHeight);
       }
     };
-    calculateToolbarHeight(); // Initial calculation
-    window.addEventListener('resize', calculateToolbarHeight); // Recalculate on resize
+    calculateToolbarHeight(); 
+    window.addEventListener('resize', calculateToolbarHeight); 
     return () => window.removeEventListener('resize', calculateToolbarHeight);
   }, []);
 
-
-  // Canvas setup and resize handling
   useEffect(() => {
     const canvas = canvasRef.current;
     const drawingArea = drawingAreaRef.current;
     if (canvas && drawingArea) {
       canvas.width = drawingArea.clientWidth;
       canvas.height = drawingArea.clientHeight;
-      // Redrawing will be handled by the main drawing effect due to dependency changes or explicit calls
-      // Force a redraw if canvas dimensions change, as it clears the canvas
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        redrawCanvas(ctx, canvas.width, canvas.height, localStrokes, partnerStrokes, currentDrawingPath, isDrawing, currentTool === 'pen' ? currentColor : ERASER_COLOR, currentStrokeWidth, currentTool);
-      }
+      // Initial draw or redraw on resize is handled by the main rendering effects
     }
-  }, [toolbarHeight, localStrokes, partnerStrokes, currentDrawingPath, isDrawing, currentColor, currentStrokeWidth, currentTool]); // Dependencies that might require resize/redraw
+  }, [toolbarHeight]); // Only resize canvas on toolbar height change (implies window resize potentially)
 
-  // Role assignment and initial connection logic (simplified)
   useEffect(() => {
     const currentId = generateUniqueId();
     setMyId(currentId); 
 
     const user1Id = localStorage.getItem(SESSION_USER1_ID_KEY);
     const user2Id = localStorage.getItem(SESSION_USER2_ID_KEY);
-
     let assignedRole: UserRole = null;
 
     if (!user1Id) {
@@ -121,7 +120,7 @@ const App: React.FC = () => {
       }
     } else if (user2Id === currentId) {
       assignedRole = 'user2';
-      setPartnerId(user1Id); // Should always be user1Id
+      setPartnerId(user1Id); 
       setIsConnected(true);
     } else {
       setStatusMessage('Session is full. Please try again later.');
@@ -132,20 +131,18 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Update status message
   useEffect(() => {
     if (isConnected && partnerId) {
       setStatusMessage("Connected. Let's draw together!");
     } else if (myRole === 'user1' && !partnerId) {
       setStatusMessage('Waiting for a partner to connect...');
-    } else if (myRole === 'user2' && !partnerId && !isConnected) {
-      setStatusMessage('Partner disconnected. Waiting...');
+    } else if (myRole === 'user2' && !partnerId && !isConnected) { // This state needs refinement
+      setStatusMessage('Partner disconnected. Waiting for User 1...');
     } else if (!myId || !myRole) {
       setStatusMessage('Initializing...');
     }
   }, [isConnected, partnerId, myRole, myId]);
 
-  // Persist localStrokes
   useEffect(() => {
     if (myRole && myId) {
       const key = myRole === 'user1' ? SESSION_USER1_STROKES_KEY : SESSION_USER2_STROKES_KEY;
@@ -153,7 +150,6 @@ const App: React.FC = () => {
     }
   }, [localStrokes, myRole, myId]);
 
-  // Load partner's strokes
   useEffect(() => {
     if (isConnected && partnerId && myRole) {
       const partnerStrokesKey = myRole === 'user1' ? SESSION_USER2_STROKES_KEY : SESSION_USER1_STROKES_KEY;
@@ -169,7 +165,6 @@ const App: React.FC = () => {
     }
   }, [isConnected, partnerId, myRole]);
 
-  // localStorage event listener
   useEffect(() => {
     if (!myId || !myRole) return;
 
@@ -185,26 +180,24 @@ const App: React.FC = () => {
         if (event.newValue && event.newValue !== currentMyId) {
           setPartnerId(event.newValue);
           setIsConnected(true);
-        } else if (!event.newValue) { // Partner left
+        } else if (!event.newValue) { 
           setIsConnected(false);
           setPartnerId(null);
           setPartnerStrokes([]);
-          // If I am user2 and user1 leaves, I attempt to become user1.
           if (currentRole === 'user2') {
             console.log('User1 left. User2 attempting to become User1.');
             localStorage.removeItem(SESSION_USER2_ID_KEY);
-            localStorage.removeItem(SESSION_USER2_STROKES_KEY); // Clear my old user2 strokes
+            localStorage.removeItem(SESSION_USER2_STROKES_KEY);
             localStorage.setItem(SESSION_USER1_ID_KEY, currentMyId);
-            setMyRole('user1');
-            // localStrokes remain, they are now user1's strokes
+            setMyRole('user1'); 
+            // setLocalStrokes([]); // User 2's strokes are gone, start fresh as User 1. Or carry them over? Let's clear.
+            // Consider if localStrokes should be cleared or re-keyed. For now, they become User 1's strokes.
           }
         }
-      } else if (event.key === SESSION_USER1_ID_KEY && currentRole === 'user2') { // Special case if User1 changes ID (e.g. they refreshed and I didn't)
+      } else if (event.key === SESSION_USER1_ID_KEY && currentRole === 'user2') {
           if(event.newValue && event.newValue !== partnerId) {
             setPartnerId(event.newValue);
             setIsConnected(true);
-          } else if (!event.newValue) { // User1 truly left
-             // This case is handled by partnerIdKey check above if newValue is null.
           }
       } else if (event.key === partnerStrokesKey) {
         if (event.newValue) {
@@ -219,10 +212,10 @@ const App: React.FC = () => {
         if (event.newValue) {
           try {
             const clearEventData = JSON.parse(event.newValue);
-            if (clearEventData.clearedBy !== currentMyId) { // Check if not self-initiated
+            if (clearEventData.clearedBy !== currentMyId) { 
               console.log('Received clear canvas event from partner.');
               setLocalStrokes([]);
-              setPartnerStrokes([]); // Partner's strokes would also be empty due to their own clear
+              setPartnerStrokes([]); 
             }
           } catch(e) { console.error("Error parsing clear canvas event", e); }
         }
@@ -231,9 +224,8 @@ const App: React.FC = () => {
 
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, [myId, myRole, partnerId]); // partnerId added for re-evaluating listener context
+  }, [myId, myRole, partnerId]);
 
-  // Cleanup on unload
   useEffect(() => {
     const cleanup = () => {
       const role = myRoleRef.current;
@@ -242,9 +234,6 @@ const App: React.FC = () => {
       if (role === 'user1' && localStorage.getItem(SESSION_USER1_ID_KEY) === id) {
         localStorage.removeItem(SESSION_USER1_ID_KEY);
         localStorage.removeItem(SESSION_USER1_STROKES_KEY);
-        // Potentially signal partner that user1 is leaving by clearing user2's ID if user1 is "session master"
-        // localStorage.removeItem(SESSION_USER2_ID_KEY); 
-        // localStorage.removeItem(SESSION_USER2_STROKES_KEY);
       } else if (role === 'user2' && localStorage.getItem(SESSION_USER2_ID_KEY) === id) {
         localStorage.removeItem(SESSION_USER2_ID_KEY);
         localStorage.removeItem(SESSION_USER2_STROKES_KEY);
@@ -260,11 +249,11 @@ const App: React.FC = () => {
     const rect = canvas.getBoundingClientRect();
     let clientX, clientY;
 
-    if ('touches' in event) { // Touch event
+    if ('touches' in event) { 
       if (event.touches.length === 0) return null;
       clientX = event.touches[0].clientX;
       clientY = event.touches[0].clientY;
-    } else { // Mouse event
+    } else { 
       clientX = event.clientX;
       clientY = event.clientY;
     }
@@ -272,15 +261,12 @@ const App: React.FC = () => {
   };
 
   const startDrawing = (event: React.MouseEvent | React.TouchEvent<HTMLDivElement>) => {
-    if ('button' in event && event.button !== 0) return; // Only main mouse click
+    if ('button' in event && event.button !== 0) return; 
     const pos = getPointerPosition(event);
     if (!pos) return;
 
     setIsDrawing(true);
     setCurrentDrawingPath([pos]);
-    if ('touches' in event) { // Prevent scrolling on touch devices while drawing
-        // event.preventDefault(); // Might be too aggressive here, consider onMove
-    }
   };
 
   const draw = (event: React.MouseEvent | React.TouchEvent<HTMLDivElement>) => {
@@ -290,7 +276,7 @@ const App: React.FC = () => {
     
     setCurrentDrawingPath(prev => [...prev, pos]);
      if ('touches' in event && event.cancelable) { 
-        event.preventDefault(); // Prevent scrolling while drawing on touch
+        event.preventDefault(); 
     }
   };
 
@@ -300,9 +286,11 @@ const App: React.FC = () => {
     if (currentDrawingPath.length > 1) {
       const newStroke: Stroke = {
         path: currentDrawingPath,
-        color: currentTool === 'pen' ? currentColor : ERASER_COLOR,
+        color: (currentTool === 'pen' || currentTool === 'gravityPen') ? currentColor : ERASER_COLOR,
         strokeWidth: currentStrokeWidth,
         tool: currentTool,
+        creationTime: (currentTool === 'gravityPen' || isPulsingBrush) ? Date.now() : undefined,
+        isPulsating: isPulsingBrush ? true : undefined,
       };
       setLocalStrokes(prev => [...prev, newStroke]);
     }
@@ -311,14 +299,13 @@ const App: React.FC = () => {
   
   const clearCanvas = () => {
     setLocalStrokes([]);
-    setPartnerStrokes([]); // Clear partner strokes locally for immediate visual feedback
+    setPartnerStrokes([]); 
     if (myId) {
       localStorage.setItem(CLEAR_CANVAS_KEY, JSON.stringify({ clearedBy: myId, timestamp: Date.now() }));
     }
-     // The useEffect for localStrokes will propagate the empty array to the partner.
   };
 
-  const redrawCanvas = (
+  const redrawCanvas = useCallback((
     ctx: CanvasRenderingContext2D,
     width: number,
     height: number,
@@ -328,45 +315,117 @@ const App: React.FC = () => {
     _isDrawing: boolean,
     _drawingColor: string,
     _strokeWidth: number,
-    _tool: DrawingTool
+    _tool: DrawingTool,
+    _blendMode: BlendMode
   ) => {
     ctx.clearRect(0, 0, width, height);
+    ctx.globalCompositeOperation = _blendMode;
 
-    const drawSingleStroke = (stroke: Stroke) => {
-      if (stroke.path.length < 2) return;
+    const allStrokes = [..._partnerStrokes, ..._localStrokes];
+    allStrokes.sort((a, b) => (a.creationTime || 0) - (b.creationTime || 0));
+
+
+    const drawSingleStroke = (stroke: Stroke, isCurrent?: boolean) => {
+      const path = stroke.path;
+      if (path.length < 2 && !isCurrent) return; // Allow single point for current drawing path start
+      if (path.length === 0 && isCurrent) return;
+
+
       ctx.beginPath();
-      ctx.moveTo(stroke.path[0].x, stroke.path[0].y);
-      for (let i = 1; i < stroke.path.length; i++) {
-        ctx.lineTo(stroke.path[i].x, stroke.path[i].y);
+      
+      let yOffset = 0;
+      if (stroke.tool === 'gravityPen' && stroke.creationTime) {
+        yOffset = (Date.now() - stroke.creationTime) * GRAVITY_FACTOR;
       }
-      ctx.strokeStyle = stroke.tool === 'pen' ? stroke.color : ERASER_COLOR;
-      ctx.lineWidth = stroke.strokeWidth;
+
+      ctx.moveTo(path[0].x, path[0].y + (stroke.tool === 'gravityPen' ? yOffset : 0) );
+      for (let i = 1; i < path.length; i++) {
+        ctx.lineTo(path[i].x, path[i].y + (stroke.tool === 'gravityPen' ? yOffset : 0));
+      }
+      
+      let finalStrokeWidth = stroke.strokeWidth;
+      if (stroke.isPulsating && stroke.creationTime) {
+        const pulseProgress = (Date.now() - stroke.creationTime) / PULSE_PERIOD;
+        const amplitude = stroke.strokeWidth * PULSE_AMPLITUDE_RATIO;
+        finalStrokeWidth = stroke.strokeWidth + Math.sin(pulseProgress * 2 * Math.PI) * amplitude;
+        finalStrokeWidth = Math.max(1, finalStrokeWidth); // Ensure minimum width
+      }
+
+      ctx.strokeStyle = stroke.color; // color includes eraser color
+      ctx.lineWidth = finalStrokeWidth;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.stroke();
     };
 
-    _partnerStrokes.forEach(drawSingleStroke);
-    _localStrokes.forEach(drawSingleStroke);
+    allStrokes.forEach(s => drawSingleStroke(s));
 
     if (_isDrawing && _currentPath.length > 0) {
-      drawSingleStroke({ path: _currentPath, color: _drawingColor, strokeWidth: _strokeWidth, tool: _tool });
+      const currentEffectiveTool = _tool; // currentTool from state
+      const currentEffectiveColor = (currentEffectiveTool === 'pen' || currentEffectiveTool === 'gravityPen') ? _drawingColor : ERASER_COLOR;
+       drawSingleStroke({
+          path: _currentPath,
+          color: currentEffectiveColor,
+          strokeWidth: _strokeWidth,
+          tool: currentEffectiveTool, // This is the tool currently being used
+          isPulsating: isPulsingBrush, // If pulsing is on for the current stroke
+          creationTime: (currentEffectiveTool === 'gravityPen' || isPulsingBrush) ? Date.now() : undefined // Mark creation for effects
+      }, true);
     }
-  };
+  }, [isPulsingBrush]); // isPulsingBrush is a dependency for current path drawing logic
 
-  // Canvas rendering effect
+  // Effect to check if animated strokes exist
+  useEffect(() => {
+    const hasAnimated =
+      localStrokes.some(s => s.tool === 'gravityPen' || s.isPulsating) ||
+      partnerStrokes.some(s => s.tool === 'gravityPen' || s.isPulsating);
+    setAnimatedStrokesExist(hasAnimated);
+  }, [localStrokes, partnerStrokes]);
+
+
+  // Animation loop effect OR static redraw effect
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!ctx || !canvas) return;
-    
-    redrawCanvas(ctx, canvas.width, canvas.height, localStrokes, partnerStrokes, currentDrawingPath, isDrawing, currentTool === 'pen' ? currentColor : ERASER_COLOR, currentStrokeWidth, currentTool);
 
-  }, [localStrokes, partnerStrokes, currentDrawingPath, isDrawing, currentColor, currentStrokeWidth, currentTool, userAssignedColor]); // userAssignedColor added as it can influence currentColor
+    if (animatedStrokesExist) {
+      let animationFrameId: number;
+      const animate = () => {
+        redrawCanvas(
+            ctx, canvas.width, canvas.height,
+            localStrokes, partnerStrokes,
+            currentDrawingPath, isDrawing,
+            currentColor, // current drawing color for pen/gravity, eraser color is handled by stroke.color
+            currentStrokeWidth, currentTool,
+            blendMode
+        );
+        animationFrameId = requestAnimationFrame(animate);
+      };
+      animationFrameId = requestAnimationFrame(animate);
+      return () => cancelAnimationFrame(animationFrameId);
+    } else {
+      // Static redraw if no animations active
+      redrawCanvas(
+        ctx, canvas.width, canvas.height,
+        localStrokes, partnerStrokes,
+        currentDrawingPath, isDrawing,
+        currentColor,
+        currentStrokeWidth, currentTool,
+        blendMode
+      );
+    }
+  }, [
+    localStrokes, partnerStrokes, currentDrawingPath, isDrawing,
+    currentColor, currentStrokeWidth, currentTool, blendMode,
+    animatedStrokesExist, redrawCanvas, canvasRef, toolbarHeight // toolbarHeight for resize redraw
+  ]);
+
 
   const getCursorStyle = () => {
     if (currentTool === 'pen') return 'crosshair';
-    if (currentTool === 'eraser') return 'cell'; // Or a custom eraser cursor
+    if (currentTool === 'eraser') return 'cell'; 
+    if (currentTool === 'gravityPen') return isDrawing ? 'grabbing' : 'grab';
     return 'default';
   };
 
@@ -382,15 +441,19 @@ const App: React.FC = () => {
         setCurrentStrokeWidth={setCurrentStrokeWidth}
         clearCanvas={clearCanvas}
         userAssignedColor={userAssignedColor}
+        isPulsingBrush={isPulsingBrush}
+        setIsPulsingBrush={setIsPulsingBrush}
+        blendMode={blendMode}
+        setBlendMode={setBlendMode}
       />
       <div
         ref={drawingAreaRef}
         className="flex-grow relative bg-white"
-        style={{ cursor: getCursorStyle() }}
+        style={{ cursor: getCursorStyle(), height: `calc(100vh - ${toolbarHeight}px)` }}
         onMouseDown={startDrawing}
         onMouseMove={draw}
         onMouseUp={endDrawing}
-        onMouseLeave={endDrawing} // End drawing if mouse leaves container while pressed
+        onMouseLeave={endDrawing} 
         onTouchStart={startDrawing}
         onTouchMove={draw}
         onTouchEnd={endDrawing}
